@@ -1,8 +1,20 @@
 # M2 Tracker
+<table>
+<tr>
+<td width="120">
+
+<img src="assets/M2TrackerIcon.png" alt="M2 Tracker Icon" width="100">
+
+</td>
+<td>
 
 A lightweight macOS menu bar app for tracking progress through the German **100-Day M2 study plan**.
 
 The app displays your current study day directly in the menu bar and helps you stay on track throughout M2 preparation.
+
+</td>
+</tr>
+</table>
 
 ## Table of Contents
 
