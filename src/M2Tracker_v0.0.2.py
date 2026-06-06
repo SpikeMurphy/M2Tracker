@@ -1,4 +1,7 @@
-# m2_tracker.py
+APP_NAME = "M2 Tracker"
+APP_VERSION = "0.0.2"
+APP_AUTHOR = "Spike Murphy Müller"
+
 import rumps
 from datetime import datetime, timedelta
 import json
@@ -11,6 +14,7 @@ from AppKit import (
     NSDatePickerElementFlagYearMonthDay,
     NSAttributedString, NSForegroundColorAttributeName,
     NSFont, NSFontAttributeName, NSColor,
+    NSApp, NSFloatingWindowLevel,
 )
 from Foundation import (
     NSDate, NSCalendar, NSCalendarUnitYear, NSCalendarUnitMonth, NSCalendarUnitDay,
@@ -44,16 +48,33 @@ def count_weekdays(start_date, end_date):
 def count_all_days(start_date, end_date):
     return (end_date - start_date).days
 
-def make_progress_bar(current, total, width=10):
-    if total == 0:
-        return "[" + "─" * width + "]"
-    filled = int((current / total) * width)
-    filled = min(filled, width)
-    return "[" + "═" * filled + "─" * (width - filled) + "]"
+def make_progress_bar(current, total, width=24):
+    """Progress bar with day count embedded in the center.
+    e.g. [════017/100─────────────]  (always 7 chars: '017/100')
+    """
+    label = f"{current:03d}/{total}"   # e.g. '017/100' — always 7 chars when total<=999
+    filled = 0 if total == 0 else min(int((current / total) * width), width)
 
-def make_row(label, day, total, bar, extra=""):
-    day_str = f"Day {day}/{total}"
-    return f"{label:<10} {day_str:>10}  {bar}  {extra}"
+    center = width // 2 - len(label) // 2   # center the label
+    bar = ["─"] * width
+    for i in range(filled):
+        bar[i] = "═"
+    for i, ch in enumerate(label):
+        pos = center + i
+        if 0 <= pos < width:
+            bar[pos] = ch
+
+    return "[" + "".join(bar) + "]"
+
+def make_row(label, bar, extra=""):
+    return f"{label:<14}  {bar}  {extra}".rstrip()
+
+def present_alert(alert):
+    """Center an NSAlert on screen and raise it above all other windows."""
+    alert.window().center()
+    alert.window().setLevel_(NSFloatingWindowLevel)
+    NSApp.activateIgnoringOtherApps_(True)
+    alert.window().makeKeyAndOrderFront_(None)
 
 def colored_menu_item(text, color):
     """
@@ -100,7 +121,8 @@ def pick_date_with_calendar(current_date=None):
     container = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 220, 148))
     container.addSubview_(picker)
     alert.setAccessoryView_(container)
-    alert.window().makeKeyAndOrderFront_(None)
+
+    present_alert(alert)
 
     response = alert.runModal()
     if response == NSAlertFirstButtonReturn:
@@ -167,11 +189,11 @@ class M2TrackerApp(rumps.App):
         start_item.set_callback(None)
 
         weekday_bar = make_progress_bar(weekday_count, self.total_days)
-        weekday_item = rumps.MenuItem(make_row("Weekdays", weekday_count, self.total_days, weekday_bar))
+        weekday_item = rumps.MenuItem(make_row("Weekdays", weekday_bar))
         weekday_item.set_callback(None)
 
         calendar_bar = make_progress_bar(calendar_count, self.total_days)
-        calendar_item = rumps.MenuItem(make_row("Calendar    ", calendar_count, self.total_days, calendar_bar))
+        calendar_item = rumps.MenuItem(make_row("Calendar        ", calendar_bar))
         calendar_item.set_callback(None)
 
         diff = actual_day - weekday_count
@@ -187,12 +209,12 @@ class M2TrackerApp(rumps.App):
             efficiency = "on track"
 
         actual_bar = make_progress_bar(actual_day, self.total_days)
-        actual_text = make_row("Actual        ", actual_day, self.total_days, actual_bar, f"({efficiency})")
+        actual_text = make_row("Actual             ", actual_bar, f"({efficiency})")
         actual_item = colored_menu_item(actual_text, status_color)
 
         offset_sign = f"+{offset}" if offset >= 0 else str(offset)
-        plus_item  = rumps.MenuItem(f"+ Add offset Day    (current: {offset_sign})", callback=self.add_offset_day)
-        minus_item = rumps.MenuItem(f"- Remove offset Day (current: {offset_sign})", callback=self.remove_offset_day)
+        plus_item  = rumps.MenuItem(f"+ offset Day (current: {offset_sign})", callback=self.add_offset_day)
+        minus_item = rumps.MenuItem(f"- offset Day (current: {offset_sign})", callback=self.remove_offset_day)
 
         self.menu = [
             start_item,
@@ -248,11 +270,10 @@ class M2TrackerApp(rumps.App):
 
         alert = NSAlert.alloc().init()
         alert.setMessageText_(f"{name}  v{version}")
-        alert.setInformativeText_(
-            f"Build {build}\n\n{info}\n\n{copy}"
-        )
+        alert.setInformativeText_(f"Build {build}\n\n{info}\n\n{copy}")
         alert.addButtonWithTitle_("OK")
-        alert.window().makeKeyAndOrderFront_(None)
+
+        present_alert(alert)
         alert.runModal()
 
     @rumps.timer(60)
