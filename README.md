@@ -82,8 +82,8 @@ Actual        [══════────045/100─────────�
 * No accounts
 * No subscriptions
 * No internet connection required
-* iCloud sync between devices
-* Auto start on login
+* iCloud sync between devices (in progress)
+* Auto start on login (in progress)
 
 ---
 
@@ -212,7 +212,6 @@ M2 Tracker does not:
 * Upload information anywhere
 
 All data remains on your device.
-Only a config file will be saved in your iCloud folder and may sync if icloud sync is activated.
 
 ---
 

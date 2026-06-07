@@ -842,11 +842,26 @@ class M2TrackerApp(rumps.App):
 
     @rumps.timer(60)
     def refresh(self, _):
-        # Re-check for iCloud conflicts on each tick
-        if _find_conflict_files():
-            self.config = load_config()
-            self._grid_panel._config = self.config
-            self._grid_panel._reload_grid()
+        try:
+            latest = load_config()
+
+            changed = (
+                latest.get("_last_saved", 0)
+                > self.config.get("_last_saved", 0)
+            )
+
+            has_conflicts = bool(_find_conflict_files())
+
+            if changed or has_conflicts:
+                self.config = latest
+                self._grid_panel._config = self.config
+
+                if self._grid_panel._panel:
+                    self._grid_panel._reload_grid()
+
+        except Exception:
+            pass
+
         self.update_display()
 
 
