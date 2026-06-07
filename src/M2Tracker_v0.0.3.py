@@ -1,12 +1,11 @@
 APP_NAME = "M2 Tracker"
-APP_VERSION = "0.0.4"
+APP_VERSION = "0.0.3"
 APP_AUTHOR = "Spike Murphy Müller"
 
 import rumps
 from datetime import datetime, timedelta
 import json
 import os
-from Quartz import CATextLayer
 
 from AppKit import (
     NSAlert, NSDatePicker, NSDatePickerStyleClockAndCalendar,
@@ -41,8 +40,8 @@ ROWS       = TOTAL_DAYS // COLS   # 20
 # Layout
 DOT_SIZE     = 10   # coloured square size
 DOT_GAP      = 4    # gap between squares
-BOX_W        = 3 * DOT_SIZE + 2 * DOT_GAP + 12 
-BOX_H        = DOT_SIZE + 14                    
+BOX_W        = 3 * DOT_SIZE + 2 * DOT_GAP + 8   # ~46
+BOX_H        = DOT_SIZE + 8                       # ~18
 ROW_LABEL_W  = 28
 PAD          = 4
 TOGGLE_H     = 28
@@ -218,42 +217,23 @@ class DayBox:
         self.view.layer().setBackgroundColor_(cg)
 
     def _build(self):
-        key        = str(self._day)
-        state      = self._config.get("grid", {}).get(key, {})
+        key   = str(self._day)
+        state = self._config.get("grid", {}).get(key, {})
         total_sq_w = len(self.FIELDS) * DOT_SIZE + (len(self.FIELDS)-1) * DOT_GAP
         x_start    = (BOX_W - total_sq_w) // 2
-        y_sq       = 3
-
-        # Day number as CATextLayer — no hit-test footprint
-        from Quartz import CATextLayer
-        num_layer = CATextLayer.layer()
-        num_layer.setString_(str(self._day))
-        num_layer.setFontSize_(7)
-        from Quartz import CGColorCreateSRGB
-        num_layer.setForegroundColor_(CGColorCreateSRGB(0.55, 0.55, 0.55, 1.0))
-        num_layer.setFrame_(((2, y_sq + DOT_SIZE + 1), (BOX_W - 4, 9)))
-        num_layer.setContentsScale_(2.0)
-        self.view.layer().addSublayer_(num_layer)
+        y_center   = (BOX_H - DOT_SIZE) // 2
 
         for i, (field, color) in enumerate(self.FIELDS):
-            x  = x_start + i * (DOT_SIZE + DOT_GAP)
-            sq = make_color_square(color, bool(state.get(field, False)),
-                                   self._make_toggle_cb(field))
-            sq.setFrame_(NSMakeRect(x, y_sq, DOT_SIZE, DOT_SIZE))
+            x = x_start + i * (DOT_SIZE + DOT_GAP)
+            sq = make_color_square(
+                color,
+                bool(state.get(field, False)),
+                self._make_toggle_cb(field)
+            )
+            sq.setFrame_(NSMakeRect(x, y_center, DOT_SIZE, DOT_SIZE))
             self.view.addSubview_(sq)
             self._squares[field] = sq
 
-        self._refresh_bg()
-
-    def refresh_state(self):
-        """Re-read config and update square colours + background without rebuilding."""
-        key   = str(self._day)
-        state = self._config.get("grid", {}).get(key, {})
-        for field, sq in self._squares.items():
-            new_state = bool(state.get(field, False))
-            if sq._state != new_state:
-                sq._state = new_state
-                sq._apply()
         self._refresh_bg()
 
     def _make_toggle_cb(self, field):
@@ -513,20 +493,6 @@ class M2TrackerApp(rumps.App):
         if self.config.get("start_date"):
             return datetime.strptime(self.config["start_date"], "%Y-%m-%d").date()
         return None
-    
-    def get_next_check_day(self):
-        grid = self.config.get("grid", {})
-
-        last_used_day = 0
-
-        for day_str, state in grid.items():
-            if any(state.get(k, False) for k in ("r", "q", "a")):
-                try:
-                    last_used_day = max(last_used_day, int(day_str))
-                except ValueError:
-                    pass
-
-        return min(last_used_day + 1, TOTAL_DAYS)
 
     def update_display(self):
         start = self.get_start_date()
@@ -594,21 +560,11 @@ class M2TrackerApp(rumps.App):
 
         grid_label = "Day Grid  ✓" if use_grid else "Day Grid"
 
-        next_day = self.get_next_check_day()
-
-        today_item = rumps.MenuItem(
-            f"Check Day {next_day}",
-            callback=self.mark_today_shortcut if use_grid else None
-        )
-
-        if not use_grid:
-            today_item._menuitem.setEnabled_(False)
-
         self.menu = [
             start_item, None,
             weekday_item, calendar_item, actual_item, None,
             plus_item, minus_item, None,
-            rumps.MenuItem(grid_label, callback=self.open_grid), today_item, None,
+            rumps.MenuItem(grid_label, callback=self.open_grid), None,
             rumps.MenuItem("Set Start Date", callback=self.set_start_date),
             rumps.MenuItem("Reset offset Days", callback=self.reset_offset), None,
             rumps.MenuItem("About M2 Tracker", callback=self.show_about),
@@ -617,26 +573,6 @@ class M2TrackerApp(rumps.App):
 
     def open_grid(self, _):
         self._grid_panel.show()
-
-    def mark_today_shortcut(self, _):
-        grid = self.config.setdefault("grid", {})
-        target_day = self.get_next_check_day()
-
-        if target_day > TOTAL_DAYS:
-            return
-
-        grid[str(target_day)] = {
-            "r": True,
-            "q": True,
-            "a": True,
-        }
-
-        save_config(self.config)
-
-        # Refresh open grid window
-        self._grid_panel._reload_grid()
-
-        self.update_display()
 
     def set_start_date(self, _):
         chosen = pick_date_with_calendar(self.get_start_date())

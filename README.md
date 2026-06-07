@@ -230,5 +230,3 @@ Spike Murphy Müller
 ## License
 
 [MIT License](https://github.com/SpikeMurphy/M2Tracker/blob/main/LICENSE.md)
-
-See the LICENSE file for details.

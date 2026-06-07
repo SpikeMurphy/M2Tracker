@@ -52,16 +52,16 @@ app = BUNDLE(
     name='M2Tracker.app',
     icon='M2TrackerIcon.icns',
     bundle_identifier='com.example.m2tracker',
-    version='0.0.3',
+    version='0.0.4',
     info_plist={
         'LSUIElement': True,
         'CFBundleName': 'M2Tracker',
         'CFBundleDisplayName': 'M2Tracker',
-        'CFBundleShortVersionString': '0.0.3',
-        'CFBundleVersion': '20260606',
+        'CFBundleShortVersionString': '0.0.4',
+        'CFBundleVersion': '20260607',
         'CFBundleExecutable': 'M2Tracker',
         'CFBundleIconFile': 'M2TrackerIcon',
         'NSHumanReadableCopyright': '© 2026 Spike Murphy Müller · MIT License',
-        'CFBundleGetInfoString': 'M2 Tracker v0.0.3 – Developed by Spike Murphy Müller',
+        'CFBundleGetInfoString': 'M2 Tracker v0.0.4 – Developed by Spike Murphy Müller',
     }
 )
