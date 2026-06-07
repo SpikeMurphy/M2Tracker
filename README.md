@@ -197,26 +197,26 @@ The app will reload your config and display your progress.
 
 ---
 > [!Tip] 
-> **I accidentally dismissed the folder picker without clicking Allow Access**
+> **I accidentally dismissed the folder picker without clicking Allow Access**  
 > Same fix as above — switch to Local and back to iCloud. The picker will appear again and you can grant access properly.
 
 ---
 
 >[!Tip] 
-> **The menu bar shows D0 or the wrong day after switching Macs**
+> **The menu bar shows D0 or the wrong day after switching Macs**  
 > Wait 60 seconds. The sync check runs on a 60-second interval. If it still doesn't update, quit and relaunch the app — it re-reads the config on startup.
 
 ---
 
 > [!Tip] 
-> **The app doesn't open after a macOS update or on a new Mac**
+> **The app doesn't open after a macOS update or on a new Mac**  
 > macOS may block apps downloaded from the internet. Right-click **M2 Tracker.app** → **Open** → confirm in the dialog. You only need to do this once.  
 > *You might need to open System Settings, Privacy and Security and approve opening the app there*
 
 ---
 
 > [!Tip] 
-> **Can I reset everything and start fresh?**
+> **Can I reset everything and start fresh?**  
 > Delete the config file for your storage mode:
 > - **Local:** `~/.m2_tracker_config.json`
 > - **iCloud:** `~/Library/CloudStorage/iCloud Drive/M2Tracker/m2_tracker_config.json`
@@ -225,7 +225,7 @@ The app will reload your config and display your progress.
 ---
 
 > [!Tip] 
-> **I want to move my data from Local to iCloud (or vice versa)**
+> **I want to move my data from Local to iCloud (or vice versa)**  
 > Just tap the storage button in the menu and switch — M2 Tracker copies your config to the new location automatically.
 
 ---
