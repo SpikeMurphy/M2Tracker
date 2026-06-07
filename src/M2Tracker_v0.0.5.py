@@ -36,14 +36,26 @@ from Foundation import (
 LEGACY_CONFIG = os.path.expanduser("~/.m2_tracker_config.json")
 
 def _get_config_path():
-    """Use iCloud Drive if available, otherwise fall back to legacy path."""
+    """
+    Use iCloud Drive if available AND writable, otherwise fall back to legacy path.
+    We probe with an actual write so macOS permission prompts happen at startup;
+    if the user denies access (or iCloud isn't set up) we silently fall back.
+    """
     icloud = os.path.expanduser(
         "~/Library/Mobile Documents/com~apple~CloudDocs"
     )
     if os.path.isdir(icloud):
         d = os.path.join(icloud, "M2Tracker")
-        os.makedirs(d, exist_ok=True)
-        return os.path.join(d, "config.json")
+        try:
+            os.makedirs(d, exist_ok=True)
+            # Probe: try creating a temp file in the target directory
+            probe = os.path.join(d, ".write_probe")
+            with open(probe, "w") as f:
+                f.write("ok")
+            os.remove(probe)
+            return os.path.join(d, "config.json")
+        except OSError:
+            pass  # no permission or iCloud blocked — fall through
     return LEGACY_CONFIG
 
 CONFIG_FILE = _get_config_path()
@@ -754,8 +766,7 @@ class M2TrackerApp(rumps.App):
         lal_item  = rumps.MenuItem(lal_label, callback=self.toggle_launch_at_login)
 
         # ── New: iCloud / local — click to reveal config folder in Finder ────────
-        using_icloud = "com~apple~CloudDocs" in CONFIG_FILE
-        icloud_label = "iCloud ☁︎" if using_icloud else "Local Storage"
+        icloud_label = "iCloud ☁︎" if CONFIG_FILE != LEGACY_CONFIG else "Local Storage"
         icloud_item  = rumps.MenuItem(icloud_label, callback=self.open_config_folder)
 
         self.menu = [
