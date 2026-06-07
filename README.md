@@ -58,6 +58,10 @@ Actual        [══════════045/100─────────�
 - **Calendar** — how many calendar days have passed
 - **Actual** — your real study day, based on either weekdays + offset, or your completed grid days
 
+<p align="left">
+  <img src="assets/interface.png" alt="Interface" width="500">
+</p>
+
 ---
 
 ## Installation
@@ -192,40 +196,32 @@ The iCloud folder permission was likely not granted. Fix it by switching storage
 The app will reload your config and display your progress.
 
 ---
-
-**I accidentally dismissed the folder picker without clicking Allow Access**
-
-Same fix as above — switch to Local and back to iCloud. The picker will appear again and you can grant access properly.
+> [!Tip] **I accidentally dismissed the folder picker without clicking Allow Access**
+> Same fix as above — switch to Local and back to iCloud. The picker will appear again and you can grant access properly.
 
 ---
 
-**The menu bar shows D0 or the wrong day after switching Macs**
-
-Wait 60 seconds. The sync check runs on a 60-second interval. If it still doesn't update, quit and relaunch the app — it re-reads the config on startup.
-
----
-
-**The app doesn't open after a macOS update or on a new Mac**
-
-macOS may block apps downloaded from the internet. Right-click **M2 Tracker.app** → **Open** → confirm in the dialog. You only need to do this once.  
-*You might need to open System Settings, Privacy and Security and approve opening the app there*
+>[!Tip] **The menu bar shows D0 or the wrong day after switching Macs**
+> Wait 60 seconds. The sync check runs on a 60-second interval. If it still doesn't update, quit and relaunch the app — it re-reads the config on startup.
 
 ---
 
-**Can I reset everything and start fresh?**
-
-Delete the config file for your storage mode:
-
-- **Local:** `~/.m2_tracker_config.json`
-- **iCloud:** `~/Library/CloudStorage/iCloud Drive/M2Tracker/m2_tracker_config.json`
-
-Relaunch the app and go through setup again.
+> [!Tip] **The app doesn't open after a macOS update or on a new Mac**
+> macOS may block apps downloaded from the internet. Right-click **M2 Tracker.app** → **Open** → confirm in the dialog. You only need to do this once.  
+> *You might need to open System Settings, Privacy and Security and approve opening the app there*
 
 ---
 
-**I want to move my data from Local to iCloud (or vice versa)**
+> [!Tip] **Can I reset everything and start fresh?**
+> Delete the config file for your storage mode:
+> - **Local:** `~/.m2_tracker_config.json`
+> - **iCloud:** `~/Library/CloudStorage/iCloud Drive/M2Tracker/m2_tracker_config.json`
+> Relaunch the app and go through setup again.
 
-Just tap the storage button in the menu and switch — M2 Tracker copies your config to the new location automatically.
+---
+
+> [!Tip] **I want to move my data from Local to iCloud (or vice versa)**
+> Just tap the storage button in the menu and switch — M2 Tracker copies your config to the new location automatically.
 
 ---
 
