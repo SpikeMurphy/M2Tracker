@@ -1,5 +1,5 @@
 APP_NAME = "M2 Tracker"
-APP_VERSION = "0.0.8"
+APP_VERSION = "0.0.6"
 APP_AUTHOR = "Spike Murphy Müller"
 
 import rumps
@@ -370,24 +370,15 @@ class DayBox:
         ("a", ANKI_BLUE),
     ]
 
-    def __init__(self, day, config, on_change, highlighted=False):
+    def __init__(self, day, config, on_change):
         self._day      = day
         self._config   = config
         self._on_change = on_change
         self._squares  = {}
-        self._highlighted = highlighted
 
         self.view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, BOX_W, BOX_H))
         self.view.setWantsLayer_(True)
         self.view.layer().setCornerRadius_(4)
-
-        if highlighted:
-            from Quartz import CGColorCreateSRGB
-            self.view.layer().setBorderWidth_(1.0)
-            self.view.layer().setBorderColor_(
-                CGColorCreateSRGB(0.20, 0.55, 1.00, 1.0)
-            )
-
         self._set_bg(False)
         self._build()
 
@@ -517,19 +508,6 @@ class GridPanel:
         # Grid
         y_start = y_toggle - INFO_LABEL_H - INFO_LABEL_GAP - PAD * 2
 
-        current_day = None
-
-        if self._config.get("start_date"):
-            start = datetime.strptime(
-                self._config["start_date"],
-                "%Y-%m-%d"
-            ).date()
-
-            current_day = min(
-                max(count_weekdays(start, datetime.now().date()), 1),
-                TOTAL_DAYS
-            )
-
         self._boxes = []
 
         for row in range(ROWS):
@@ -550,7 +528,7 @@ class GridPanel:
                 day = row * COLS + col + 1
                 x   = PAD + ROW_LABEL_W + col * (BOX_W + PAD)
                 y   = y_start - row * (BOX_H + PAD) - BOX_H
-                box = DayBox(day, self._config, self._box_changed, highlighted=(day == current_day))
+                box = DayBox(day, self._config, self._box_changed)
                 box.view.setFrame_(NSMakeRect(x, y, BOX_W, BOX_H))
                 content.addSubview_(box.view)
                 self._boxes.append(box)
