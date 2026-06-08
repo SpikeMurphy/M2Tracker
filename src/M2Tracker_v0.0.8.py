@@ -1,5 +1,5 @@
 APP_NAME = "M2 Tracker"
-APP_VERSION = "0.0.9"
+APP_VERSION = "0.0.8"
 APP_AUTHOR = "Spike Murphy Müller"
 
 import rumps
