@@ -9,3 +9,5 @@ build.md
 /dist
 /tmp
 /pyinstaller
+
+src/M2Tracker_v*.py

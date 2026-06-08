@@ -1,5 +1,5 @@
 APP_NAME = "M2 Tracker"
-APP_VERSION = "0.0.10"
+APP_VERSION = "0.1.1"
 APP_AUTHOR = "Spike Murphy Müller"
 
 import rumps
@@ -46,11 +46,6 @@ if not os.path.isdir(_icloud_symlink):
 ICLOUD_DIR         = os.path.join(_icloud_symlink, "M2Tracker")
 ICLOUD_CONFIG_FILE = os.path.join(ICLOUD_DIR, "m2_tracker_config.json")
 PREFS_FILE         = os.path.expanduser("~/.m2_tracker_prefs.json")   # always local
-# A local mirror of the iCloud config written every time we successfully read/write
-# the real iCloud file. Used as fallback when iCloud isn't accessible yet on boot.
-LOCAL_CACHE_FILE   = os.path.expanduser("~/.m2_tracker_cache.json")
-# Security-scoped bookmark blob for the iCloud folder — persists access across reboots.
-BOOKMARK_FILE      = os.path.expanduser("~/.m2_tracker_bookmark.dat")
 
 # ── BUNDLE_ID & LaunchAgent path ────────────────────────────────────────────────
 BUNDLE_ID = "com.spikemurphy.m2tracker"
@@ -128,60 +123,21 @@ INFO_LABEL_GAP = 6
 
 
 # ── iCloud helpers ──────────────────────────────────────────────────────────────
-def _icloud_is_downloaded(path):
-    """
-    Return True only if the file is fully present on disk (not an evicted placeholder).
-    Uses the com.apple.cloudDocs.download-state xattr as primary signal.
-    """
-    if not os.path.exists(path):
-        return False
-
-    try:
-        result = subprocess.run(
-            ["xattr", "-p", "com.apple.cloudDocs.download-state", path],
-            capture_output=True, timeout=3
-        )
-        if result.returncode == 0:
-            raw = result.stdout.strip()
-            try:
-                val = int(raw, 16) if raw else 0
-            except (ValueError, TypeError):
-                val = raw[0] if raw else 0
-            if val != 3:
-                return False
-    except Exception:
-        pass  # xattr unavailable or not an iCloud file — assume downloaded
-
-    return True
-
-
 def ensure_icloud_downloaded(path):
     """
-    Force iCloud to materialise an evicted file. Polls for up to 15 s.
-    Returns True when the file is confirmed on disk.
+    Ask iCloud to materialise an evicted file, then wait up to 5 s.
+    Safe to call even when the file is already local.
     """
-    # Always issue brctl download — safe even if already local
     try:
         subprocess.run(["brctl", "download", path],
                        capture_output=True, timeout=5)
     except Exception:
         pass
-
-    if _icloud_is_downloaded(path):
-        return True
-
-    for _ in range(30):
-        time.sleep(0.5)
-        if _icloud_is_downloaded(path):
+    # Brief wait for iCloud to finish downloading
+    for _ in range(10):
+        if os.path.exists(path):
             return True
-
-    # Last resort: attempt an open() to trigger materialisation
-    try:
-        with open(path, "rb"):
-            pass
-    except Exception:
-        pass
-
+        time.sleep(0.5)
     return os.path.exists(path)
 
 
@@ -197,142 +153,6 @@ def _can_access_icloud():
     except OSError:
         return False
 
-
-# ── Security-scoped bookmark helpers ───────────────────────────────────────────
-#
-# How macOS sandbox/TCC works for paths outside the app container:
-#   • The first time the user picks a folder via NSOpenPanel, the OS grants
-#     access for that process run only.
-#   • To persist access across reboots we call
-#     bookmarkDataWithOptions_includingResourceValuesForKeys_relativeToURL_error_()
-#     with NSURLBookmarkCreationWithSecurityScope immediately after the panel
-#     closes, and write the raw bytes to BOOKMARK_FILE (~/.m2_tracker_bookmark.dat).
-#   • On every subsequent launch we resolve that blob with
-#     URLByResolvingBookmarkData_options_relativeToURL_bookmarkDataIsStale_error_()
-#     and call url.startAccessingSecurityScopedResource() before any file I/O.
-#   • We balance that with stopAccessingSecurityScopedResource() on quit.
-#
-# When running as a plain Python script (no sandbox entitlement) the security-
-# scoped flag may not be available.  We try it first and fall back to a plain
-# bookmark — the open-panel grant is still recorded by the OS and survives reboots
-# on all supported macOS versions.
-
-_icloud_access_url = None   # live NSURL with an active security scope, or None
-
-
-def _nsdata_to_bytes(nsdata):
-    """Convert PyObjC NSData/__NSCFData to Python bytes (bytes(nsdata) raises TypeError)."""
-    try:
-        return bytes(memoryview(nsdata))
-    except TypeError:
-        pass
-    try:
-        return nsdata.bytes().tobytes()
-    except Exception:
-        pass
-    try:
-        import base64
-        return base64.b64decode(str(nsdata.base64EncodedStringWithOptions_(0)))
-    except Exception:
-        pass
-    return None
-
-
-def _save_bookmark(url):
-    """
-    Create a security-scoped (or plain) bookmark for *url* and persist it to
-    BOOKMARK_FILE.  Call immediately after a successful NSOpenPanel pick.
-    Returns True on success.
-    """
-    try:
-        NSURLBookmarkCreationWithSecurityScope = 1 << 11
-        bookmark_data = url.bookmarkDataWithOptions_includingResourceValuesForKeys_relativeToURL_error_(
-            NSURLBookmarkCreationWithSecurityScope, None, None, None)
-        if bookmark_data is None:
-            # Fallback: plain bookmark (no security-scope flag)
-            bookmark_data = url.bookmarkDataWithOptions_includingResourceValuesForKeys_relativeToURL_error_(
-                0, None, None, None)
-        if bookmark_data is not None:
-            raw = _nsdata_to_bytes(bookmark_data)
-            if raw is None:
-                notify("M2 Tracker – Bookmark", "Could not convert bookmark data to bytes.")
-                return False
-            with open(BOOKMARK_FILE, "wb") as f:
-                f.write(raw)
-            return True
-    except Exception as e:
-        notify("M2 Tracker – Bookmark", f"Could not save access bookmark: {e}")
-    return False
-
-
-def _resolve_bookmark():
-    """
-    Load the saved bookmark blob and resolve it to a live NSURL, then start
-    accessing the security-scoped resource.  Updates the globals
-    _icloud_access_url, ICLOUD_DIR, and ICLOUD_CONFIG_FILE if the resolved
-    path differs from the module-level defaults.
-    Returns True when access is successfully established.
-    """
-    global _icloud_access_url, ICLOUD_DIR, ICLOUD_CONFIG_FILE
-
-    if not os.path.exists(BOOKMARK_FILE):
-        return False
-
-    from Foundation import NSData
-    try:
-        with open(BOOKMARK_FILE, "rb") as f:
-            raw = f.read()
-
-        bookmark_data = NSData.dataWithBytes_length_(raw, len(raw))
-
-        NSURLBookmarkResolutionWithSecurityScope = 1 << 10
-        is_stale_ref = [False]
-
-        from Foundation import NSURL
-        url = NSURL.URLByResolvingBookmarkData_options_relativeToURL_bookmarkDataIsStale_error_(
-            bookmark_data,
-            NSURLBookmarkResolutionWithSecurityScope,
-            None,
-            is_stale_ref,
-            None)
-
-        if url is None:
-            # Plain bookmark fallback
-            url = NSURL.URLByResolvingBookmarkData_options_relativeToURL_bookmarkDataIsStale_error_(
-                bookmark_data, 0, None, is_stale_ref, None)
-
-        if url is None:
-            return False
-
-        # This call is what actually re-establishes I/O permission in the OS
-        url.startAccessingSecurityScopedResource()
-        _icloud_access_url = url
-
-        resolved_path = url.path()
-        if resolved_path and resolved_path != ICLOUD_DIR:
-            ICLOUD_DIR = resolved_path
-            ICLOUD_CONFIG_FILE = os.path.join(ICLOUD_DIR, "m2_tracker_config.json")
-
-        if is_stale_ref[0]:
-            # Bookmark became stale (folder moved) — refresh it silently
-            _save_bookmark(url)
-
-        return True
-
-    except Exception as e:
-        notify("M2 Tracker – Bookmark", f"Could not resolve access bookmark: {e}")
-        return False
-
-
-def stop_icloud_access():
-    """Release the security-scoped resource.  Called on app quit."""
-    global _icloud_access_url
-    if _icloud_access_url is not None:
-        try:
-            _icloud_access_url.stopAccessingSecurityScopedResource()
-        except Exception:
-            pass
-        _icloud_access_url = None
 
 
 # ── Config I/O ──────────────────────────────────────────────────────────────────
@@ -385,25 +205,15 @@ def _write_json_file_atomic(path, data):
         return False, str(e)
 
 
-def _save_local_cache(config):
-    """Write a local mirror of the iCloud config that survives reboots."""
-    ok, err = _write_json_file_atomic(LOCAL_CACHE_FILE, config)
-    if not ok:
-        # Non-fatal — just means the fallback won't be available next boot.
-        pass
-
-
 def load_config(prefs):
     """
     Load config from the path determined by prefs.
 
-    iCloud mode boot-sequence:
-      1. Try the real iCloud file (triggers brctl download first).
-      2. If that fails with a permission error (Errno 1 — TCC not yet granted
-         by macOS on this boot), fall back to the local cache silently.
-         The 60-second refresh timer will pick up the real file once iCloud
-         becomes accessible.
-      3. If neither is available, return an empty config.
+    iCloud mode:
+      1. Try to materialise the file via brctl download.
+      2. Read and return it.
+      3. On permission error: notify and return empty config (timer will retry).
+      4. On any other error: notify and return empty config.
 
     Always returns a valid config dict — never raises.
     """
@@ -415,23 +225,18 @@ def load_config(prefs):
 
         data, err = _read_json_file(path)
         if data is not None:
-            _save_local_cache(data)          # update the local mirror
             return _normalise_config(data)
 
         if err is not None:
             if "Permission denied" in err or "Errno 1" in err:
-                # Typical on first launch after reboot: iCloud Drive TCC permission
-                # has not been granted yet.  Fall back to cache silently; the timer
-                # will retry in ≤60 s.
-                cache_data, cache_err = _read_json_file(LOCAL_CACHE_FILE)
-                if cache_data is not None:
-                    return _normalise_config(cache_data)
-                # Cache also unreadable — nothing to show yet; timer will retry.
+                # iCloud Drive not yet accessible (e.g. right after boot).
+                # The 60-second refresh timer will pick up the real file once ready.
+                notify("M2 Tracker – iCloud",
+                       "iCloud Drive not yet accessible. Will retry automatically.")
                 return dict(_EMPTY_CONFIG)
             else:
                 # Unexpected error (corrupt JSON, disk full, …)
                 notify("M2 Tracker – Config Error", f"Could not read config: {err}")
-                # Try to back up a corrupted file
                 if "JSON parse error" in err:
                     try:
                         import shutil
@@ -480,10 +285,6 @@ def save_config(config, prefs):
         notify("M2 Tracker – Save Error", f"Could not save config: {err}")
         return
 
-    # Keep the local cache in sync so the next boot can use it as fallback
-    if prefs.get("use_icloud"):
-        _save_local_cache(config)
-
 
 def get_config_mtime(prefs):
     path = get_config_file(prefs)
@@ -520,10 +321,6 @@ def transfer_config(from_prefs, to_prefs):
         notify("M2 Tracker – Transfer Error",
                f"Could not write config to destination: {err}")
         return
-
-    # Keep local cache in sync after transfer
-    if to_prefs.get("use_icloud"):
-        _save_local_cache(data)
 
 
 # ── Launch-at-Login ─────────────────────────────────────────────────────────────
@@ -1106,25 +903,23 @@ class M2TrackerApp(rumps.App):
     def _first_launch_setup(self):
         """
         On the very first run: ask where to store data and whether to auto-launch.
-        On every subsequent launch: restore iCloud folder access silently using
-        either the security-scoped bookmark (works in a .app bundle) or the path
-        stored in prefs (works for plain .py script runs too).
-        The folder-picker is shown at most once.
+        On every subsequent iCloud launch: restore the saved iCloud folder path
+        from prefs (no file picker needed, no security-scoped bookmark).
         """
         if "use_icloud" not in self.prefs:
             self._ask_storage()
         elif self.prefs.get("use_icloud"):
-            # 1. Try security-scoped bookmark (works inside a sandboxed .app)
-            if not _resolve_bookmark():
-                # 2. Fall back to the path saved in prefs (works for plain scripts)
-                saved_path = self.prefs.get("icloud_dir")
-                if saved_path and os.path.isdir(saved_path):
-                    global ICLOUD_DIR, ICLOUD_CONFIG_FILE
-                    ICLOUD_DIR = saved_path
-                    ICLOUD_CONFIG_FILE = os.path.join(ICLOUD_DIR, "m2_tracker_config.json")
-                else:
-                    # 3. Neither worked — show picker once and save results
-                    self._grant_icloud_permission()
+            # Restore the iCloud path saved in prefs on previous launch.
+            saved_path = self.prefs.get("icloud_dir")
+            if saved_path and os.path.isdir(saved_path):
+                global ICLOUD_DIR, ICLOUD_CONFIG_FILE
+                ICLOUD_DIR = saved_path
+                ICLOUD_CONFIG_FILE = os.path.join(ICLOUD_DIR, "m2_tracker_config.json")
+            else:
+                # Path not saved or folder gone — try the default location
+                if not os.path.isdir(ICLOUD_DIR):
+                    notify("M2 Tracker – iCloud",
+                           "iCloud folder not found. Please switch storage to iCloud again.")
 
         if "launch_at_login" not in self.prefs:
             self._ask_autostart()
@@ -1146,61 +941,8 @@ class M2TrackerApp(rumps.App):
                 os.makedirs(ICLOUD_DIR, exist_ok=True)
             except OSError:
                 pass
-            self._grant_icloud_permission()   # pick folder + save bookmark
+            self.prefs["icloud_dir"] = ICLOUD_DIR
         save_prefs(self.prefs)
-
-    def _grant_icloud_permission(self):
-        """
-        Show a native folder picker pre-pointed at the M2Tracker iCloud folder.
-        After the user clicks Allow Access:
-          1. Update the module-level ICLOUD_DIR / ICLOUD_CONFIG_FILE globals.
-          2. Save a security-scoped bookmark so future launches need no UI.
-        The bookmark persists across reboots — _resolve_bookmark() redeems it.
-        """
-        global ICLOUD_DIR, ICLOUD_CONFIG_FILE
-        from AppKit import NSOpenPanel, NSModalResponseOK
-        from Foundation import NSURL
-        try:
-            os.makedirs(ICLOUD_DIR, exist_ok=True)
-        except OSError:
-            pass
-        panel = NSOpenPanel.openPanel()
-        panel.setMessage_(
-            "Allow M2 Tracker to access its iCloud folder.\n"
-            "This is a one-time step — the app will remember this choice "
-            "even after a restart."
-        )
-        panel.setPrompt_("Allow Access")
-        panel.setCanChooseFiles_(False)
-        panel.setCanChooseDirectories_(True)
-        panel.setCanCreateDirectories_(True)
-        panel.setAllowsMultipleSelection_(False)
-        panel.setDirectoryURL_(NSURL.fileURLWithPath_(ICLOUD_DIR))
-        NSApp.activateIgnoringOtherApps_(True)
-        response = panel.runModal()
-        if response == NSModalResponseOK:
-            url = panel.URL()
-            if url:
-                chosen = url.path()
-                if chosen:
-                    ICLOUD_DIR = chosen
-                    ICLOUD_CONFIG_FILE = os.path.join(ICLOUD_DIR, "m2_tracker_config.json")
-                    # Persist the path in prefs — works for plain .py scripts
-                    # where security-scoped bookmarks aren't available.
-                    self.prefs["icloud_dir"] = chosen
-                    save_prefs(self.prefs)
-                # Also try a security-scoped bookmark (bonus for .app bundles)
-                saved = _save_bookmark(url)
-                if not saved:
-                    notify(
-                        "M2 Tracker – Permission",
-                        "Access was granted but could not be saved for next launch. "
-                        "You may need to allow access again after a restart."
-                    )
-                # Start the security scope for this session too
-                url.startAccessingSecurityScopedResource()
-                global _icloud_access_url
-                _icloud_access_url = url
 
     def _ask_autostart(self):
         alert = NSAlert.alloc().init()
@@ -1268,15 +1010,7 @@ class M2TrackerApp(rumps.App):
                 os.makedirs(ICLOUD_DIR, exist_ok=True)
             except OSError:
                 pass
-            self._grant_icloud_permission()   # shows picker + saves bookmark
-        else:
-            # Switching away from iCloud: release the security scope and remove
-            # the stale bookmark so it doesn't interfere with a future re-enable.
-            stop_icloud_access()
-            try:
-                os.remove(BOOKMARK_FILE)
-            except OSError:
-                pass
+            self.prefs["icloud_dir"] = ICLOUD_DIR
 
         transfer_config(old_prefs, self.prefs)
         save_prefs(self.prefs)
@@ -1473,9 +1207,7 @@ class M2TrackerApp(rumps.App):
     def refresh(self, _):
         """
         Every 60 s: check for external config changes (important for iCloud sync).
-        In iCloud mode also triggers a download if the file was evicted, and
-        retries the real iCloud file if we were previously on the cache fallback
-        (i.e. the app started on boot before iCloud TCC permission was granted).
+        In iCloud mode also triggers a download if the file was evicted.
         """
         try:
             if self.prefs.get("use_icloud"):
@@ -1490,17 +1222,6 @@ class M2TrackerApp(rumps.App):
                 self._last_config_mtime = mtime
                 # Rebuild the grid panel with the new config reference
                 self._grid_panel = GridPanel(self.config, self.prefs, self._grid_changed)
-            elif self.prefs.get("use_icloud") and not self.config.get("start_date"):
-                # We may be running from the cache fallback (start_date present in
-                # real file but not in cache).  Attempt to read the real file now
-                # that iCloud may have become accessible.
-                path = get_config_file(self.prefs)
-                data, err = _read_json_file(path)
-                if data is not None and data.get("start_date"):
-                    _save_local_cache(data)
-                    self.config = _normalise_config(data)
-                    self._last_config_mtime = get_config_mtime(self.prefs)
-                    self._grid_panel = GridPanel(self.config, self.prefs, self._grid_changed)
 
             self.update_display()
         except Exception as e:
